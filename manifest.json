@@ -1,0 +1,58 @@
+{
+"name": "Mic-Link Pro DSP - Transmisor Micrófono Bluetooth",
+"short_name": "MicLink",
+"id": "mic-link-pro-dsp",
+"description": "Convierte audífonos Bluetooth en micrófono puente inalámbrico para amplificar la voz en parlantes y bocinas con latencia ultra-baja.",
+"start_url": "./",
+"scope": "./",
+"display": "standalone",
+"display_override": [
+"standalone",
+"minimal-ui",
+"window-controls-overlay"
+],
+"background_color": "#030712",
+"theme_color": "#030712",
+"orientation": "any",
+"categories": [
+"audio",
+"utilities",
+"music",
+"productivity"
+],
+"icono.png": [
+{
+"src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='128' fill='%23030712'/%3E%3Cpath d='M130 250 A 126 126 0 0 1 382 250' fill='none' stroke='%236366f1' stroke-width='32' stroke-linecap='round'/%3E%3Crect x='100' y='230' width='36' height='75' rx='18' fill='%23818cf8'/%3E%3Crect x='376' y='230' width='36' height='75' rx='18' fill='%23818cf8'/%3E%3Crect x='226' y='180' width='60' height='100' rx='30' fill='%2306b6d4'/%3E%3Cpath d='M200 240 a 56 56 0 0 0 112 0' fill='none' stroke='%2338bdf8' stroke-width='16' stroke-linecap='round'/%3E%3Cline x1='256' y1='296' x2='256' y2='350' stroke='%2338bdf8' stroke-width='16' stroke-linecap='round'/%3E%3Cpath d='M256 70 v 70 m0 -50 l 20 -20 l -40 40 l 40 40 l -20 -20' fill='none' stroke='%23a855f7' stroke-width='14' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E",
+"sizes": "192x192 512x512",
+"type": "image/svg+xml",
+"purpose": "any maskable"
+},
+{
+"src": "icono.png",
+"sizes": "192x192",
+"type": "image/png",
+"purpose": "any"
+},
+{
+"src": "icono.png",
+"sizes": "512x512",
+"type": "image/png",
+"purpose": "maskable any"
+}
+],
+"shortcuts": [
+{
+"name": "Transmitir en Vivo",
+"short_name": "Transmitir",
+"description": "Inicia directamente la consola de transmisión de audio",
+"url": "./",
+"icono.png": [
+{
+"src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='48' fill='%23030712'/%3E%3Ccircle cx='96' cy='96' r='40' fill='%236366f1'/%3E%3C/svg%3E",
+"sizes": "192x192",
+"type": "image/svg+xml"
+}
+]
+}
+]
+}

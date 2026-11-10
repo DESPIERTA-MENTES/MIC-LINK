@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="es" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Mic-Link Pro DSP - Transmisor de Audio Bluetooth</title>
+
+    <!-- PWA & Mobile Web App Meta Tags -->
+    <meta name="theme-color" content="#030712">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Mic-Link Pro">
+    <meta name="application-name" content="Mic-Link Pro">
+    <meta name="description" content="Convierte audífonos Bluetooth en micrófono inalámbrico para amplificar la voz en parlantes y bocinas con latencia ultra-baja.">
+
+    <!-- Iconos PWA y Favicon (prioriza icono.png local con fallback vectorial) -->
+    <link rel="icon" type="image/png" href="icono.png">
+    <link rel="apple-touch-icon" href="icono.png">
+
+    <!-- Web App Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca'
+                        }
+                    },
+                    keyframes: {
+                        splashProgress: {
+                            '0%': { width: '0%' },
+                            '100%': { width: '100%' }
+                        }
+                    },
+                    animation: {
+                        'splash-progress': 'splashProgress 2.2s cubic-bezier(0.4, 0, 0.2, 1) forwards'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+
+        body {
+            padding-top: env(safe-area-inset-top, 0px);
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+            padding-left: env(safe-area-inset-left, 0px);
+            padding-right: env(safe-area-inset-right, 0px);
+        }
+
+        /* Sliders táctiles ergonómicos para dedos */
+        input[type=range].touch-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #111827;
+            border-radius: 9999px;
+            height: 10px;
+            touch-action: none;
+        }
+
+        input[type=range].touch-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 26px;
+            width: 26px;
+            border-radius: 50%;
+            background: #6366f1;
+            border: 3px solid #1e1b4b;
+            cursor: pointer;
+            box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+        }
+
+        input[type=range].touch-slider-cyan::-webkit-slider-thumb {
+            background: #06b6d4;
+            border-color: #083344;
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.6);
+        }
+
+        /* Faders verticales compactos para el ecualizador */
+        .slider-vertical {
+            writing-mode: bt-lr;
+            -webkit-appearance: slider-vertical;
+            appearance: slider-vertical;
+            width: 100%;
+            height: 95px;
+            cursor: pointer;
+            touch-action: none;
+        }
+
+        @media (min-width: 768px) {
+            .slider-vertical { height: 115px; }
+        }
+
+        /* Animación de transmisión en vivo */
+        @keyframes pulse-live {
+            0% { transform: scale(0.97); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1.02); box-shadow: 0 0 0 16px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.97); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        .live-active {
+            animation: pulse-live 2s infinite ease-in-out;
+        }
+
+        .led-glow-green { box-shadow: 0 0 12px rgba(34, 197, 94, 0.85); }
+        .led-glow-red { box-shadow: 0 0 12px rgba(239, 68, 68, 0.85); }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans antialiased min-h-screen flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
+
+    <!-- ========================================== -->
+    <!-- 1. SPLASH SCREEN DE BIENVENIDA (2.2s)      -->
+    <!-- ========================================== -->
+    <div id="splash-screen" class="fixed inset-0 z-50 bg-gray-950 flex flex-col items-center justify-between p-6 transition-all duration-700 ease-out select-none">
+        
+        <!-- Contenido Central del Splash -->
+        <div class="flex-1 flex flex-col items-center justify-center text-center space-y-5">
+            
+            <!-- Contenedor del Icono con Halo Neón -->
+            <div class="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center">
+                <div class="absolute inset-0 bg-indigo-500/25 rounded-3xl blur-2xl animate-pulse"></div>
+                
+                <!-- Imagen icono.png con fallback automático -->
+                <img id="splash-app-icon" 
+                     src="icono.png" 
+                     alt="Icono de la Aplicación" 
+                     class="w-full h-full object-contain relative z-10 rounded-3xl shadow-2xl drop-shadow-[0_0_20px_rgba(99,102,241,0.5)] border border-indigo-500/30 p-1 bg-gray-900/60"
+                     onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 512 512\'%3E%3Crect width=\'512\' height=\'512\' rx=\'128\' fill=\'%23030712\'/%3E%3Cpath d=\'M130 250 A 126 126 0 0 1 382 250\' fill=\'none\' stroke=\'%236366f1\' stroke-width=\'32\' stroke-linecap=\'round\'/%3E%3Crect x=\'100\' y=\'230\' width=\'36\' height=\'75\' rx=\'18\' fill=\'%23818cf8\'/%3E%3Crect x=\'376\' y=\'230\' width=\'36\' height=\'75\' rx=\'18\' fill=\'%23818cf8\'/%3E%3Crect x=\'226\' y=\'180\' width=\'60\' height=\'100\' rx=\'30\' fill=\'%2306b6d4\'/%3E%3Cpath d=\'M200 240 a 56 56 0 0 0 112 0\' fill=\'none\' stroke=\'%2338bdf8\' stroke-width=\'16\' stroke-linecap=\'round\'/%3E%3Cline x1=\'256\' y1=\'296\' x2=\'256\' y2=\'350\' stroke=\'%2338bdf8\' stroke-width=\'16\' stroke-linecap=\'round\'/%3E%3Cpath d=\'M256 70 v 70 m0 -50 l 20 -20 l -40 40 l 40 40 l -20 -20\' fill=\'none\' stroke=\'%23a855f7\' stroke-width=\'14\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E';">
+            </div>
+
+            <!-- Título y Subtítulo -->
+            <div class="space-y-1">
+                <h1 class="text-2xl sm:text-3xl font-black text-white tracking-wider flex items-center justify-center gap-2">
+                    MIC-LINK <span class="text-indigo-400 font-extrabold">PRO DSP</span>
+                </h1>
+                <p class="text-xs text-gray-400 font-mono tracking-wide">
+                    Puente de Audio Bluetooth &bull; Ultra-Baja Latencia
+                </p>
+            </div>
+
+            <!-- Barra de Carga Elegante -->
+            <div class="w-48 h-1.5 bg-gray-900 rounded-full overflow-hidden border border-gray-800">
+                <div class="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-indigo-400 rounded-full animate-splash-progress"></div>
+            </div>
+
+            <span class="text-[11px] text-gray-400 font-mono">Iniciando procesador DSP...</span>
+        </div>
+
+        <!-- Firma Corporativa en el Splash (inferior) -->
+        <div class="flex flex-col items-center gap-2 pb-2">
+            <span class="text-[10px] text-gray-400 uppercase tracking-widest font-mono font-semibold">Una solución de</span>
+            <div class="p-2 px-4 rounded-xl bg-gray-900/60 border border-gray-800/80 flex items-center justify-center">
+                <img src="logofirma.png" 
+                     alt="Firma Corporativa" 
+                     class="h-12 sm:h-14 max-h-16 object-contain drop-shadow-md transition-transform" 
+                     onerror="this.style.display='none'; document.getElementById('splash-signature-text').style.display='block';">
+            </div>
+            <span id="splash-signature-text" class="hidden text-xs font-bold text-gray-400 tracking-wider">
+                DESPIERTA MENTES
+            </span>
+        </div>
+
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2. BARRA SUPERIOR DE LA APLICACIÓN         -->
+    <!-- ========================================== -->
+    <header class="bg-gray-900/90 border-b border-gray-800/80 px-3.5 py-2.5 sm:px-5 sm:py-3 sticky top-0 z-40 backdrop-blur-md">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            
+            <!-- Logo compacto con icono y estado -->
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl overflow-hidden border border-indigo-500/40 bg-gray-900 flex items-center justify-center shadow">
+                    <img src="icono.png" alt="Mic-Link Icon" class="w-full h-full object-cover" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 512 512\'%3E%3Crect width=\'512\' height=\'512\' rx=\'128\' fill=\'%23030712\'/%3E%3Ccircle cx=\'256\' cy=\'256\' r=\'120\' fill=\'%236366f1\'/%3E%3C/svg%3E';">
+                </div>
+                <div>
+                    <h1 class="text-sm sm:text-base font-bold text-white flex items-center gap-1.5 leading-none">
+                        MIC-LINK <span class="text-[9px] bg-indigo-950 text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-mono">PWA</span>
+                    </h1>
+                    <span id="header-status" class="text-[10px] text-gray-400 flex items-center gap-1 mt-0.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Listo para transmitir
+                    </span>
+                </div>
+            </div>
+
+            <!-- Accesos Rápidos Superiores -->
+            <div class="flex items-center gap-2">
+                <!-- Estado Wake Lock (Evita que la pantalla se apague) -->
+                <div id="wakelock-pill" title="Mantiene la pantalla encendida para que no se pause el audio" class="flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-lg bg-gray-950 border border-gray-800 text-gray-400">
+                    <i class="fa-solid fa-sun text-gray-500 text-[10px]" id="wakelock-icon"></i>
+                    <span class="hidden sm:inline" id="wakelock-status">Pantalla Normal</span>
+                </div>
+
+                <!-- Indicador de Segundo Plano Activo -->
+                <div id="bg-pill" title="Funciona en segundo plano al minimizar o cambiar de app" class="flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-lg bg-gray-950 border border-gray-800 text-gray-400">
+                    <i class="fa-solid fa-layer-group text-cyan-400 text-[10px]"></i>
+                    <span class="hidden sm:inline" id="bg-status">2do Plano OK</span>
+                </div>
+
+                <!-- Botón Instalar PWA -->
+                <button id="pwa-install-btn" class="hidden bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-[11px] px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1 active:scale-95">
+                    <i class="fa-solid fa-download"></i>
+                    <span>Instalar</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ========================================== -->
+    <!-- 3. CONTENEDOR PRINCIPAL: INTERFAZ TÁCTIL   -->
+    <!-- ========================================== -->
+    <main class="max-w-4xl w-full mx-auto p-3 sm:p-5 flex-1 space-y-3.5 sm:space-y-4">
+
+        <!-- TIP DE BAJA LATENCIA & SEGUNDO PLANO -->
+        <div class="bg-gray-900/60 border border-indigo-900/40 rounded-xl px-3 py-2 text-[11px] text-indigo-200/90 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 truncate">
+                <i class="fa-brands fa-bluetooth-b text-cyan-400 text-sm shrink-0"></i>
+                <span class="truncate">Transmisión continua: puedes minimizar la ventana o cambiar de app sin cortes.</span>
+            </div>
+            <span id="latency-badge" class="font-mono text-[10px] bg-gray-950 px-2 py-0.5 rounded border border-gray-800 text-indigo-300 shrink-0">-- ms</span>
+        </div>
+
+        <!-- LAYOUT RESPONSIVO: 1 COLUMNA EN MÓVIL / 2 COLUMNAS EN TABLET -->
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3.5 sm:gap-4 items-start">
+            
+            <!-- PANEL PRINCIPAL DE TRANSMISIÓN (7 columnas en tablet) -->
+            <div class="md:col-span-7 space-y-3.5">
+                
+                <!-- SELECTOR DE MICRÓFONO BLUETOOTH -->
+                <div class="bg-gray-900/80 border border-gray-800 rounded-2xl p-3 sm:p-4 shadow-lg space-y-2">
+                    <div class="flex justify-between items-center text-xs">
+                        <label class="font-semibold text-gray-300 flex items-center gap-1.5">
+                            <i class="fa-solid fa-headphones text-cyan-400"></i> Entrada de Audio (Bluetooth)
+                        </label>
+                        <button id="refresh-btn" class="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium transition">
+                            <i class="fa-solid fa-rotate-right"></i> Buscar
+                        </button>
+                    </div>
+                    <select id="mic-select" class="w-full bg-gray-950 border border-gray-700 text-xs sm:text-sm text-gray-100 rounded-xl p-2.5 sm:p-3 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition cursor-pointer truncate">
+                        <option value="">Detectando audífonos...</option>
+                    </select>
+
+                    <!-- Selector de Salida (si el navegador lo admite) -->
+                    <div id="output-device-box" class="hidden pt-1 border-t border-gray-800/80">
+                        <label class="block text-[11px] text-gray-400 mb-1 flex items-center gap-1">
+                            <i class="fa-solid fa-volume-high text-cyan-400"></i> Salida al Parlante:
+                        </label>
+                        <select id="output-select" class="w-full bg-gray-950 border border-gray-800 text-xs text-gray-300 rounded-lg p-2 focus:outline-none">
+                            <option value="default">Salida Predeterminada (AUX / Bocina)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- CONSOLA CENTRAL TÁCTIL: BOTÓN ENORME + MUTE + VU METER -->
+                <div class="bg-gray-900/90 border border-gray-800 rounded-2xl p-4 sm:p-6 shadow-xl flex flex-col items-center justify-center space-y-4 relative overflow-hidden">
+                    
+                    <!-- VU Meter integrado en la parte superior de la consola -->
+                    <div class="w-full space-y-1">
+                        <div class="flex justify-between items-center text-[11px] font-mono text-gray-400">
+                            <span class="flex items-center gap-1.5">
+                                <span id="status-dot" class="w-2 h-2 rounded-full bg-gray-600"></span>
+                                <span id="console-status-text">LISTO</span>
+                            </span>
+                            <span id="vu-db" class="font-bold text-gray-300">-∞ dB</span>
+                        </div>
+                        <div class="h-3.5 sm:h-4 bg-gray-950 rounded-lg p-0.5 border border-gray-800/90 overflow-hidden relative">
+                            <div id="vu-bar" class="h-full bg-gradient-to-r from-emerald-500 via-amber-400 to-red-500 rounded transition-all duration-75 w-0"></div>
+                        </div>
+                    </div>
+
+                    <!-- BOTÓN PRINCIPAL DE TRANSMISIÓN GIGANTE -->
+                    <div class="w-full flex items-center justify-center py-2">
+                        <button id="toggle-btn" class="w-full sm:w-72 py-5 sm:py-6 px-6 rounded-2xl font-black text-lg sm:text-xl shadow-2xl flex flex-col items-center justify-center gap-2 transition-all duration-200 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white shadow-indigo-600/30">
+                            <i id="toggle-icon" class="fa-solid fa-power-off text-2xl sm:text-3xl"></i>
+                            <span id="toggle-text" class="tracking-wide text-sm sm:text-base font-bold">TRANSMITIR EN VIVO</span>
+                        </button>
+                    </div>
+
+                    <!-- BOTÓN MUTE RÁPIDO & INDICADOR DE PEAK -->
+                    <div class="grid grid-cols-2 gap-2.5 w-full">
+                        <button id="mute-btn" disabled class="py-3 px-3 bg-gray-800 text-gray-400 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-gray-700 transition cursor-not-allowed active:scale-95">
+                            <i class="fa-solid fa-microphone-slash text-base"></i>
+                            <span id="mute-label">MUTE</span>
+                        </button>
+
+                        <div id="clip-indicator" class="py-3 px-2 rounded-xl bg-gray-950 border border-gray-800 text-center text-[10px] sm:text-xs font-mono font-bold tracking-wider text-gray-500 uppercase flex items-center justify-center truncate">
+                            NIVEL OK
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- PANEL DE AJUSTES TÁCTILES RÁPIDOS (5 columnas en tablet) -->
+            <div class="md:col-span-5 space-y-3.5">
+                
+                <!-- CARD DE CONTROLES ESENCIALES -->
+                <div class="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 shadow-lg space-y-4">
+                    <h2 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-indigo-400"></i> Controles de Mezcla
+                    </h2>
+
+                    <!-- 1. Master Volume Slider Táctil -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="font-semibold text-gray-300 flex items-center gap-1.5">
+                                <i class="fa-solid fa-volume-high text-indigo-400"></i> Volumen Micrófono
+                            </span>
+                            <span id="gain-val" class="font-mono font-bold text-indigo-400 text-sm">100%</span>
+                        </div>
+                        <input type="range" id="master-gain" min="0" max="3" step="0.05" value="1" class="w-full touch-slider cursor-pointer">
+                    </div>
+
+                    <!-- 2. Un toque de Reverb Sutil (Sin Eco) -->
+                    <div class="p-3 bg-gray-950/70 border border-gray-800 rounded-xl space-y-2">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="font-semibold text-gray-300 flex items-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles text-cyan-400"></i> Un Toque de Reverb
+                            </span>
+                            <span id="reverb-val" class="font-mono font-bold text-cyan-400 text-xs">12% (Sutil)</span>
+                        </div>
+                        <input type="range" id="reverb-mix" min="0" max="0.40" step="0.01" value="0.12" class="w-full touch-slider touch-slider-cyan cursor-pointer">
+                        <div class="flex justify-between text-[10px] text-gray-500 font-medium">
+                            <span>0% (Seco)</span>
+                            <span>12% (Voz Estudio)</span>
+                            <span>40% (Espacioso)</span>
+                        </div>
+                    </div>
+
+                    <!-- 3. Reductor de Ruido / Siseo Bluetooth (Noise Gate) -->
+                    <div class="p-3 bg-gray-950/70 border border-gray-800 rounded-xl space-y-2">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="font-semibold text-gray-300 flex items-center gap-1.5">
+                                <i class="fa-solid fa-shield text-indigo-400"></i> Anti-Siseo (Noise Gate)
+                            </span>
+                            <span id="gate-val" class="font-mono text-indigo-400 text-xs font-bold">Inactivo</span>
+                        </div>
+                        <input type="range" id="gate-threshold" min="0" max="60" value="0" step="5" class="w-full touch-slider cursor-pointer">
+                        <p class="text-[10px] text-gray-500 leading-tight">Corta el zumbido de fondo cuando estás en silencio.</p>
+                    </div>
+
+                    <!-- Switch Rápido: Modo Ultra-Baja Latencia Directa -->
+                    <label class="flex items-center justify-between p-2.5 bg-gray-950/70 border border-gray-800 rounded-xl cursor-pointer hover:border-gray-700 transition">
+                        <div>
+                            <span class="text-xs text-gray-200 font-semibold block">Ultra-Baja Latencia (Bypass)</span>
+                            <span class="text-[10px] text-gray-500">Saltea filtros para máxima velocidad</span>
+                        </div>
+                        <input type="checkbox" id="bypass-toggle" class="w-4 h-4 text-indigo-600 rounded bg-gray-900 border-gray-700 focus:ring-indigo-500">
+                    </label>
+
+                </div>
+
+                <!-- BOTÓN PLEGABLE: AJUSTES AVANZADOS Y ECUALIZADOR -->
+                <button id="adv-toggle-btn" class="w-full py-2.5 px-3 bg-gray-900/90 border border-gray-800 hover:border-indigo-500/50 rounded-xl text-xs font-semibold text-gray-300 flex items-center justify-between transition">
+                    <span class="flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-indigo-400"></i> Ecualizador y Filtros Avanzados
+                    </span>
+                    <i id="adv-chevron" class="fa-solid fa-chevron-down text-gray-500 text-xs transition-transform duration-200"></i>
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- SECCIÓN COLAPSABLE: ECUALIZADOR DE 7 BANDAS Y FILTROS TÉCNICOS -->
+        <section id="adv-panel" class="hidden bg-gray-900/90 border border-gray-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4 transition-all">
+            
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 border-b border-gray-800/80 pb-3">
+                <div>
+                    <h3 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-wave-square text-indigo-400"></i> Ecualizador Vocal y Filtros de Sonido
+                    </h3>
+                    <p class="text-[11px] text-gray-400">Ajusta los tonos para resaltar la claridad de tu voz.</p>
+                </div>
+
+                <!-- Selector de Presets -->
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <label for="preset-select" class="text-xs text-gray-400 shrink-0">Preset:</label>
+                    <select id="preset-select" class="bg-gray-950 border border-gray-700 text-xs text-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 w-full sm:w-auto cursor-pointer">
+                        <option value="flat">Plano (Natural)</option>
+                        <option value="vocal" selected>Voz Clara (Recomendado)</option>
+                        <option value="anti-feedback">Anti-Acoples (Sin Chillidos)</option>
+                        <option value="warm">Voz Cálida (Locutor)</option>
+                        <option value="radio">Megáfono / Radio</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Faders de 7 bandas adaptados a pantallas táctiles -->
+            <div id="eq-section" class="w-full overflow-x-auto pb-1">
+                <div class="grid grid-cols-7 gap-1 sm:gap-2 pt-1 text-center min-w-[270px]">
+                    <div class="flex flex-col items-center gap-1">
+                        <span id="eq-val-0" class="text-[9px] font-mono text-gray-400">-4dB</span>
+                        <input type="range" id="eq-0" min="-15" max="15" value="-4" step="1" class="slider-vertical accent-indigo-500 bg-gray-950 rounded">
+                        <span class="text-[9px] sm:text-[10px] font-mono font-bold text-indigo-400">60Hz</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1">
+                        <span id="eq-val-1" class="text-[9px] font-mono text-gray-400">-2dB</span>
+                        <input type="range" id="eq-1" min="-15" max="15" value="-2" step="1" class="slider-vertical accent-indigo-500 bg-gray-950 rounded">
+                        <span class="text-[9px] sm:text-[10px] font-mono font-bold text-indigo-400">150Hz</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1">
+                        <span id="eq-val-2" class="text-[9px] font-mono text-gray-400">+1dB</span>
+                        <input type="range" id="eq-2" min="-15" max="15" value="1" step="1" class="slider-vertical accent-indigo-500 bg-gray-950 rounded">
+                        <span class="text-[9px] sm:text-[10px] font-mono font-bold text-indigo-400">400Hz</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1">
+                        <span id="eq-val-3" class="text-[9px] font-mono text-gray-400">+3dB</span>
+                        <input type="range" id="eq-3" min="-15" max="15" value="3" step="1" class="slider-vertical accent-indigo-500 bg-gray-950 rounded">
+                        <span class="text-[9px] sm:text-[10px] font-mono font-bold text-indigo-400">1kHz</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1">
+                        <span id="eq-val-4" class="text-[9px] font-mono text-gray-400">+4dB</span>
+                        <input type="range" id="eq-4" min="-15" max="15" value="4" step="1" class="slider-vertical accent-indigo-500 bg-gray-950 rounded">
+                        <span class="text-[9px] sm:text-[10px] font-mono font-bold text-indigo-400">2.5k</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1">
+                        <span id="eq-val-5" class="text-[9px] font-mono text-gray-400">+2dB</span>
+                        <input type="range" id="eq-5" min="-15" max="15" value="2" step="1" class="slider-vertical accent-indigo-500 bg-gray-950 rounded">
+                        <span class="text-[9px] sm:text-[10px] font-mono font-bold text-indigo-400">6kHz</span>
+                    </div>
+                    <div class="flex flex-col items-center gap-1">
+                        <span id="eq-val-6" class="text-[9px] font-mono text-gray-400">0dB</span>
+                        <input type="range" id="eq-6" min="-15" max="15" value="0" step="1" class="slider-vertical accent-indigo-500 bg-gray-950 rounded">
+                        <span class="text-[9px] sm:text-[10px] font-mono font-bold text-indigo-400">12k</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filtros de estabilidad (3 toggles) -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-800/80">
+                <label class="flex items-center justify-between p-2.5 bg-gray-950 rounded-xl cursor-pointer border border-gray-800">
+                    <span class="text-xs text-gray-300">Filtro Low-Cut (90Hz)</span>
+                    <input type="checkbox" id="lowcut-toggle" checked class="w-4 h-4 text-indigo-600 rounded bg-gray-900 border-gray-700">
+                </label>
+                <label class="flex items-center justify-between p-2.5 bg-gray-950 rounded-xl cursor-pointer border border-gray-800">
+                    <span class="text-xs text-gray-300">Filtro Notch (3.2kHz)</span>
+                    <input type="checkbox" id="notch-toggle" class="w-4 h-4 text-indigo-600 rounded bg-gray-900 border-gray-700">
+                </label>
+                <label class="flex items-center justify-between p-2.5 bg-gray-950 rounded-xl cursor-pointer border border-gray-800">
+                    <span class="text-xs text-gray-300">Compresor Anti-Pico</span>
+                    <input type="checkbox" id="comp-toggle" checked class="w-4 h-4 text-indigo-600 rounded bg-gray-900 border-gray-700">
+                </label>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ========================================== -->
+    <!-- 4. FOOTER CON FIRMA CORPORATIVA            -->
+    <!-- ========================================== -->
+    <footer class="bg-gray-900/80 border-t border-gray-800/80 py-5 px-4 text-center space-y-3">
+        
+        <!-- Logo de la Firma Corporativa Ampliado y Notorio -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
+            <span class="text-xs sm:text-sm text-gray-300 font-medium tracking-wide">Desarrollado y respaldado por:</span>
+            <div class="p-2 px-4 rounded-xl bg-gray-950/70 border border-gray-800/90 shadow-inner flex items-center justify-center">
+                <img src="logofirma.png" 
+                     alt="Firma Corporativa" 
+                     class="h-12 sm:h-14 md:h-16 max-h-16 object-contain transition-transform hover:scale-105 drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]" 
+                     onerror="this.style.display='none'; document.getElementById('footer-fallback-signature').style.display='inline-block';">
+            </div>
+            <span id="footer-fallback-signature" class="hidden text-sm font-bold text-indigo-400 tracking-wider">
+                DESPIERTA MENTES
+            </span>
+        </div>
+
+        <p class="text-[10px] sm:text-[11px] text-gray-500 font-mono">
+            Mic-Link Pro &bull; Audio DSP Routing Engine &bull; Versión 1.0.0
+        </p>
+    </footer>
+
+    <!-- BANNER PWA PARA DISPOSITIVOS IOS / SAFARI -->
+    <div id="ios-install-banner" class="hidden fixed bottom-3 left-3 right-3 z-40 bg-indigo-950/95 border border-indigo-700 rounded-xl p-3 text-xs text-indigo-200 flex items-center justify-between gap-2 shadow-2xl backdrop-blur-md">
+        <div class="flex items-center gap-2 text-[11px]">
+            <i class="fa-solid fa-arrow-up-from-bracket text-indigo-400 text-sm"></i>
+            <span>Para pantalla completa: Toca <strong>Compartir</strong> y luego <strong>"Agregar al inicio"</strong>.</span>
+        </div>
+        <button id="close-pwa-banner" class="text-gray-400 hover:text-white text-xs p-1">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+    </div>
+
+    <!-- Elementos de Audio para Salida y Anclaje de Segundo Plano -->
+    <audio id="audio-out-element" autoplay playsinline class="hidden"></audio>
+    <audio id="keepalive-audio" loop playsinline class="hidden"></audio>
+
+    <!-- ========================================== -->
+    <!-- 5. MOTOR DE AUDIO DSP Y CONTROLADORES      -->
+    <!-- ========================================== -->
+    <script>
+        // --- A. GESTIÓN DEL SPLASH SCREEN (2.2 SEGUNDOS) ---
+        window.addEventListener('load', () => {
+            const splash = document.getElementById('splash-screen');
+            setTimeout(() => {
+                splash.classList.add('opacity-0', 'pointer-events-none');
+                setTimeout(() => splash.remove(), 700);
+            }, 2200);
+        });
+
+        // --- B. REGISTRO OFICIAL DEL SERVICE WORKER ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker registrado:', reg.scope))
+                    .catch(err => console.log('Aviso SW:', err));
+            });
+        }
+
+        // --- C. PROMPT DE INSTALACIÓN PWA ---
+        let deferredPrompt;
+        const pwaInstallBtn = document.getElementById('pwa-install-btn');
+        const iosBanner = document.getElementById('ios-install-banner');
+        const closePwaBanner = document.getElementById('close-pwa-banner');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            pwaInstallBtn.classList.remove('hidden');
+        });
+
+        pwaInstallBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') pwaInstallBtn.classList.add('hidden');
+                deferredPrompt = null;
+            }
+        });
+
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+        if (isIOS && !isStandalone) iosBanner.classList.remove('hidden');
+        closePwaBanner.addEventListener('click', () => iosBanner.classList.add('hidden'));
+
+        // --- D. SCREEN WAKE LOCK (MANTIENE LA PANTALLA ACTIVA) ---
+        let wakeLock = null;
+        const wakeLockIcon = document.getElementById('wakelock-icon');
+        const wakeLockStatus = document.getElementById('wakelock-status');
+
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLockStatus.textContent = 'Pantalla Activa';
+                    wakeLockIcon.classList.remove('text-gray-500');
+                    wakeLockIcon.classList.add('text-amber-400');
+                    wakeLock.addEventListener('release', () => {
+                        wakeLockStatus.textContent = 'Pantalla Normal';
+                        wakeLockIcon.classList.add('text-gray-500');
+                        wakeLockIcon.classList.remove('text-amber-400');
+                    });
+                } catch (err) {
+                    console.log('WakeLock:', err);
+                }
+            }
+        }
+
+        function releaseWakeLock() {
+            if (wakeLock) wakeLock.release().then(() => wakeLock = null);
+        }
+
+        // --- E. PANEL AVANZADO PLEGABLE ---
+        const advToggleBtn = document.getElementById('adv-toggle-btn');
+        const advPanel = document.getElementById('adv-panel');
+        const advChevron = document.getElementById('adv-chevron');
+
+        advToggleBtn.addEventListener('click', () => {
+            advPanel.classList.toggle('hidden');
+            advChevron.classList.toggle('rotate-180');
+        });
+
+        // --- F. PIPELINE DSP DE AUDIO PROFESIONAL ---
+        let audioCtx = null;
+        let micStream = null;
+        let micSourceNode = null;
+        let gainNode = null;
+        let gateGainNode = null;
+        let analyserNode = null;
+        let lowCutNode = null;
+        let notchNode = null;
+        let compressorNode = null;
+        let convolverNode = null;
+        let reverbWetGain = null;
+        let reverbDryGain = null;
+        let eqNodes = [];
+        let isStreaming = false;
+        let isMuted = false;
+        let animationFrameId = null;
+
+        const EQ_FREQUENCIES = [60, 150, 400, 1000, 2500, 6000, 12000];
+
+        // --- GENERADOR DE IMPULSO PARA REVERB DE ESTUDIO ---
+        function createImpulseResponse(ctx, duration = 0.85, decay = 3.2) {
+            const sampleRate = ctx.sampleRate;
+            const length = Math.floor(sampleRate * duration);
+            const impulse = ctx.createBuffer(2, length, sampleRate);
+            const left = impulse.getChannelData(0);
+            const right = impulse.getChannelData(1);
+            for (let i = 0; i < length; i++) {
+                const n = i / length;
+                const env = Math.exp(-n * decay);
+                left[i] = (Math.random() * 2 - 1) * env;
+                right[i] = (Math.random() * 2 - 1) * env;
+            }
+            return impulse;
+        }
+
+        // --- GENERADOR DE ONDA SILENCIOSA PARA ANCLAJE EN SEGUNDO PLANO (BACKGROUND KEEP-ALIVE) ---
+        function createSilentAudioUrl() {
+            const sampleRate = 8000;
+            const numSamples = sampleRate; // 1 segundo de silencio
+            const buffer = new ArrayBuffer(44 + numSamples * 2);
+            const view = new DataView(buffer);
+            const writeStr = (offset, str) => {
+                for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+            };
+            writeStr(0, 'RIFF');
+            view.setUint32(4, 36 + numSamples * 2, true);
+            writeStr(8, 'WAVE');
+            writeStr(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM
+            view.setUint16(22, 1, true); // Mono
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeStr(36, 'data');
+            view.setUint32(40, numSamples * 2, true);
+            const blob = new Blob([buffer], { type: 'audio/wav' });
+            return URL.createObjectURL(blob);
+        }
+
+        const keepAliveAudio = document.getElementById('keepalive-audio');
+        const silentAudioUrl = createSilentAudioUrl();
+        keepAliveAudio.src = silentAudioUrl;
+
+        // --- GESTIÓN DE LA MEDIA SESSION API (CONTROLES EN PANTALLA DE BLOQUEO Y SEGUNDO PLANO) ---
+        function updateMediaSession(active) {
+            if (!('mediaSession' in navigator)) return;
+            if (active) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: 'Mic-Link Pro (En Vivo)',
+                    artist: 'Transmisión en Segundo Plano Activa',
+                    album: 'Puente Micrófono Bluetooth',
+                    artwork: [
+                        { src: 'icono.png', sizes: '512x512', type: 'image/png' }
+                    ]
+                });
+                navigator.mediaSession.playbackState = 'playing';
+
+                // Acciones desde pantalla de bloqueo / notificación
+                navigator.mediaSession.setActionHandler('play', () => {
+                    if (isMuted) toggleMute();
+                });
+                navigator.mediaSession.setActionHandler('pause', () => {
+                    if (!isMuted) toggleMute();
+                });
+                navigator.mediaSession.setActionHandler('stop', () => stopAudio());
+            } else {
+                navigator.mediaSession.playbackState = 'none';
+            }
+        }
+
+        // --- CONTROL AUTOMÁTICO DE VISIBILIDAD (EVITA DESCONEXIÓN AL MINIMIZAR) ---
+        document.addEventListener('visibilitychange', async () => {
+            if (isStreaming && audioCtx) {
+                // Si el navegador intentó pausar el AudioContext al pasar a segundo plano, lo reactivamos
+                if (audioCtx.state === 'suspended') {
+                    try {
+                        await audioCtx.resume();
+                    } catch (e) {
+                        console.warn('Reactivando AudioContext:', e);
+                    }
+                }
+                // Si el elemento ancla se pausó, lo reactivamos
+                if (keepAliveAudio && keepAliveAudio.paused) {
+                    try {
+                        await keepAliveAudio.play();
+                    } catch (e) {}
+                }
+                // Si volvimos a primer plano, garantizamos que el medidor VU siga dibujando
+                if (!document.hidden) {
+                    cancelAnimationFrame(animationFrameId);
+                    startVUMeter();
+                }
+            }
+        });
+
+        // Referencias a elementos del DOM
+        const micSelect = document.getElementById('mic-select');
+        const outputSelect = document.getElementById('output-select');
+        const outputDeviceBox = document.getElementById('output-device-box');
+        const toggleBtn = document.getElementById('toggle-btn');
+        const toggleText = document.getElementById('toggle-text');
+        const toggleIcon = document.getElementById('toggle-icon');
+        const muteBtn = document.getElementById('mute-btn');
+        const muteLabel = document.getElementById('mute-label');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const masterGain = document.getElementById('master-gain');
+        const gainVal = document.getElementById('gain-val');
+        const vuBar = document.getElementById('vu-bar');
+        const vuDb = document.getElementById('vu-db');
+        const statusDot = document.getElementById('status-dot');
+        const headerStatus = document.getElementById('header-status');
+        const consoleStatusText = document.getElementById('console-status-text');
+        const clipIndicator = document.getElementById('clip-indicator');
+        const latencyBadge = document.getElementById('latency-badge');
+        const presetSelect = document.getElementById('preset-select');
+        const gateThreshold = document.getElementById('gate-threshold');
+        const gateVal = document.getElementById('gate-val');
+        const reverbMix = document.getElementById('reverb-mix');
+        const reverbVal = document.getElementById('reverb-val');
+        const audioElement = document.getElementById('audio-out-element');
+
+        const bypassToggle = document.getElementById('bypass-toggle');
+        const lowcutToggle = document.getElementById('lowcut-toggle');
+        const notchToggle = document.getElementById('notch-toggle');
+        const compToggle = document.getElementById('comp-toggle');
+        const eqSection = document.getElementById('eq-section');
+
+        window.addEventListener('DOMContentLoaded', () => {
+            getAudioDevices();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            refreshBtn.addEventListener('click', getAudioDevices);
+            toggleBtn.addEventListener('click', toggleAudio);
+            muteBtn.addEventListener('click', toggleMute);
+
+            masterGain.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                gainVal.textContent = Math.round(val * 100) + '%';
+                if (gainNode && audioCtx && !isMuted) {
+                    gainNode.gain.setTargetAtTime(val, audioCtx.currentTime, 0.015);
+                }
+            });
+
+            reverbMix.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                const pct = Math.round(val * 100);
+                reverbVal.textContent = pct === 0 ? '0% (Seco)' : `${pct}% (${pct <= 15 ? 'Sutil' : 'Espacioso'})`;
+                if (reverbWetGain && audioCtx) {
+                    reverbWetGain.gain.setTargetAtTime(val, audioCtx.currentTime, 0.02);
+                }
+            });
+
+            gateThreshold.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                gateVal.textContent = val === 0 ? 'Inactivo' : `-${val} dB`;
+            });
+
+            bypassToggle.addEventListener('change', () => {
+                if (bypassToggle.checked) {
+                    eqSection.classList.add('opacity-30', 'pointer-events-none');
+                } else {
+                    eqSection.classList.remove('opacity-30', 'pointer-events-none');
+                }
+                if (isStreaming) reconnectAudioGraph();
+            });
+
+            [lowcutToggle, notchToggle, compToggle].forEach(t => {
+                t.addEventListener('change', () => {
+                    if (isStreaming) reconnectAudioGraph();
+                });
+            });
+
+            EQ_FREQUENCIES.forEach((freq, idx) => {
+                const slider = document.getElementById(`eq-${idx}`);
+                const label = document.getElementById(`eq-val-${idx}`);
+                slider.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    label.textContent = (val > 0 ? '+' : '') + val + 'dB';
+                    if (eqNodes[idx] && audioCtx) {
+                        eqNodes[idx].gain.setTargetAtTime(val, audioCtx.currentTime, 0.015);
+                    }
+                });
+            });
+
+            presetSelect.addEventListener('change', (e) => applyPreset(e.target.value));
+
+            if ('setSinkId' in HTMLMediaElement.prototype) {
+                outputSelect.addEventListener('change', async () => {
+                    try {
+                        await audioElement.setSinkId(outputSelect.value);
+                    } catch (e) {
+                        console.warn(e);
+                    }
+                });
+            }
+        }
+
+        async function getAudioDevices() {
+            try {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                tempStream.getTracks().forEach(t => t.stop());
+
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputs = devices.filter(d => d.kind === 'audioinput');
+                const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+
+                micSelect.innerHTML = '';
+                if (audioInputs.length === 0) {
+                    micSelect.innerHTML = '<option value="">No se encontraron micrófonos</option>';
+                } else {
+                    audioInputs.forEach((device, index) => {
+                        const opt = document.createElement('option');
+                        opt.value = device.deviceId;
+                        let label = device.label || `Micrófono ${index + 1}`;
+                        const lower = label.toLowerCase();
+                        if (lower.includes('bluetooth') || lower.includes('bt') || lower.includes('hands-free') || lower.includes('airpods') || lower.includes('buds') || lower.includes('wireless')) {
+                            label = '🎧 ' + label + ' (Bluetooth)';
+                            opt.selected = true;
+                        }
+                        opt.text = label;
+                        micSelect.appendChild(opt);
+                    });
+                }
+
+                if (audioOutputs.length > 0 && 'setSinkId' in HTMLMediaElement.prototype) {
+                    outputDeviceBox.classList.remove('hidden');
+                    outputSelect.innerHTML = '';
+                    audioOutputs.forEach((device, index) => {
+                        const opt = document.createElement('option');
+                        opt.value = device.deviceId;
+                        opt.text = device.label || `Salida ${index + 1}`;
+                        outputSelect.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error(err);
+                micSelect.innerHTML = '<option value="">Permiso de micrófono requerido</option>';
+            }
+        }
+
+        async function startAudio() {
+            try {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+                const deviceId = micSelect.value;
+                const constraints = {
+                    audio: {
+                        deviceId: deviceId ? { exact: deviceId } : undefined,
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        channelCount: 1,
+                        latency: 0
+                    }
+                };
+
+                micStream = await navigator.mediaDevices.getUserMedia(constraints);
+                micSourceNode = audioCtx.createMediaStreamSource(micStream);
+
+                buildAudioNodes();
+                reconnectAudioGraph();
+
+                if ('setSinkId' in HTMLMediaElement.prototype && outputSelect.value) {
+                    const dest = audioCtx.createMediaStreamDestination();
+                    gainNode.connect(dest);
+                    audioElement.srcObject = dest.stream;
+                    try { await audioElement.setSinkId(outputSelect.value); } catch (e) {}
+                }
+
+                // Iniciar ancla de audio para garantizar ejecución en segundo plano
+                try {
+                    await keepAliveAudio.play();
+                } catch (e) {
+                    console.log('Keep-alive audio activo');
+                }
+
+                // Iniciar sesión multimedia de sistema operativo (bloqueo / notificaciones)
+                updateMediaSession(true);
+
+                // Auto-reactivación continua si el contexto cambia de estado
+                audioCtx.onstatechange = () => {
+                    if (isStreaming && audioCtx.state === 'suspended') {
+                        audioCtx.resume().catch(() => {});
+                    }
+                };
+
+                isStreaming = true;
+                isMuted = false;
+
+                // Actualizar interfaz a estado "En Vivo"
+                toggleBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-500', 'shadow-indigo-600/30');
+                toggleBtn.classList.add('bg-red-600', 'hover:bg-red-500', 'shadow-red-600/40', 'live-active');
+                toggleText.textContent = 'DETENER TRANSMISIÓN';
+                toggleIcon.className = 'fa-solid fa-stop text-2xl sm:text-3xl';
+
+                statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 led-glow-green';
+                consoleStatusText.textContent = 'EN VIVO';
+                headerStatus.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 led-glow-green"></span> Transmitiendo audio';
+
+                muteBtn.disabled = false;
+                muteBtn.className = 'py-3 px-3 bg-amber-600/20 text-amber-300 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-amber-500/50 hover:bg-amber-600/30 transition cursor-pointer active:scale-95';
+
+                const baseLatency = ((audioCtx.baseLatency || 0) + (audioCtx.outputLatency || 0)) * 1000;
+                latencyBadge.textContent = baseLatency ? `${baseLatency.toFixed(0)} ms latencia` : '< 10 ms';
+
+                requestWakeLock();
+                startVUMeter();
+
+            } catch (err) {
+                console.error(err);
+                alert('No se pudo iniciar el micrófono: ' + err.message);
+                stopAudio();
+            }
+        }
+
+        function buildAudioNodes() {
+            gainNode = audioCtx.createGain();
+            gainNode.gain.value = parseFloat(masterGain.value);
+
+            gateGainNode = audioCtx.createGain();
+            gateGainNode.gain.value = 1.0;
+
+            convolverNode = audioCtx.createConvolver();
+            convolverNode.buffer = createImpulseResponse(audioCtx, 0.85, 3.2);
+
+            reverbWetGain = audioCtx.createGain();
+            reverbWetGain.gain.value = parseFloat(reverbMix.value);
+
+            reverbDryGain = audioCtx.createGain();
+            reverbDryGain.gain.value = 1.0;
+
+            analyserNode = audioCtx.createAnalyser();
+            analyserNode.fftSize = 256;
+            analyserNode.smoothingTimeConstant = 0.3;
+
+            lowCutNode = audioCtx.createBiquadFilter();
+            lowCutNode.type = 'highpass';
+            lowCutNode.frequency.value = 90;
+
+            notchNode = audioCtx.createBiquadFilter();
+            notchNode.type = 'notch';
+            notchNode.frequency.value = 3200;
+            notchNode.Q.value = 6.0;
+
+            compressorNode = audioCtx.createDynamicsCompressor();
+            compressorNode.threshold.value = -14;
+            compressorNode.knee.value = 8;
+            compressorNode.ratio.value = 10;
+            compressorNode.attack.value = 0.003;
+            compressorNode.release.value = 0.06;
+
+            eqNodes = EQ_FREQUENCIES.map((freq, idx) => {
+                const filter = audioCtx.createBiquadFilter();
+                if (idx === 0) filter.type = 'lowshelf';
+                else if (idx === EQ_FREQUENCIES.length - 1) filter.type = 'highshelf';
+                else {
+                    filter.type = 'peaking';
+                    filter.Q.value = 1.4;
+                }
+                filter.frequency.value = freq;
+                filter.gain.value = parseFloat(document.getElementById(`eq-${idx}`).value);
+                return filter;
+            });
+        }
+
+        function reconnectAudioGraph() {
+            if (!micSourceNode || !audioCtx) return;
+
+            micSourceNode.disconnect();
+            if (gateGainNode) gateGainNode.disconnect();
+            if (gainNode) gainNode.disconnect();
+            if (lowCutNode) lowCutNode.disconnect();
+            if (notchNode) notchNode.disconnect();
+            if (compressorNode) compressorNode.disconnect();
+            if (convolverNode) convolverNode.disconnect();
+            if (reverbWetGain) reverbWetGain.disconnect();
+            if (reverbDryGain) reverbDryGain.disconnect();
+            eqNodes.forEach(n => n.disconnect());
+
+            if (bypassToggle.checked) {
+                micSourceNode.connect(reverbDryGain);
+                reverbDryGain.connect(gateGainNode);
+
+                micSourceNode.connect(convolverNode);
+                convolverNode.connect(reverbWetGain);
+                reverbWetGain.connect(gateGainNode);
+
+                gateGainNode.connect(gainNode);
+                gainNode.connect(analyserNode);
+                gainNode.connect(audioCtx.destination);
+                return;
+            }
+
+            let current = micSourceNode;
+
+            if (lowcutToggle.checked) {
+                current.connect(lowCutNode);
+                current = lowCutNode;
+            }
+
+            eqNodes.forEach(eq => {
+                current.connect(eq);
+                current = eq;
+            });
+
+            if (notchToggle.checked) {
+                current.connect(notchNode);
+                current = notchNode;
+            }
+
+            if (compToggle.checked) {
+                current.connect(compressorNode);
+                current = compressorNode;
+            }
+
+            current.connect(reverbDryGain);
+            reverbDryGain.connect(gateGainNode);
+
+            current.connect(convolverNode);
+            convolverNode.connect(reverbWetGain);
+            reverbWetGain.connect(gateGainNode);
+
+            gateGainNode.connect(gainNode);
+            gainNode.connect(analyserNode);
+            gainNode.connect(audioCtx.destination);
+        }
+
+        function toggleMute() {
+            if (!isStreaming || !gainNode || !audioCtx) return;
+            isMuted = !isMuted;
+
+            if (isMuted) {
+                gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.015);
+                muteBtn.className = 'py-3 px-3 bg-red-600 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-red-500 led-glow-red transition cursor-pointer active:scale-95';
+                muteLabel.textContent = 'MUTED (SILENCIO)';
+            } else {
+                gainNode.gain.setTargetAtTime(parseFloat(masterGain.value), audioCtx.currentTime, 0.015);
+                muteBtn.className = 'py-3 px-3 bg-amber-600/20 text-amber-300 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-amber-500/50 hover:bg-amber-600/30 transition cursor-pointer active:scale-95';
+                muteLabel.textContent = 'MUTE';
+            }
+        }
+
+        function stopAudio() {
+            isStreaming = false;
+            isMuted = false;
+
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            if (micStream) {
+                micStream.getTracks().forEach(t => t.stop());
+                micStream = null;
+            }
+            if (audioCtx) {
+                audioCtx.close();
+                audioCtx = null;
+            }
+
+            // Detener ancla de segundo plano y sesión multimedia
+            try {
+                keepAliveAudio.pause();
+                keepAliveAudio.currentTime = 0;
+            } catch (e) {}
+            updateMediaSession(false);
+
+            releaseWakeLock();
+
+            // UI Reset
+            toggleBtn.classList.remove('bg-red-600', 'hover:bg-red-500', 'shadow-red-600/40', 'live-active');
+            toggleBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-500', 'shadow-indigo-600/30');
+            toggleText.textContent = 'TRANSMITIR EN VIVO';
+            toggleIcon.className = 'fa-solid fa-power-off text-2xl sm:text-3xl';
+
+            statusDot.className = 'w-2 h-2 rounded-full bg-gray-600';
+            consoleStatusText.textContent = 'LISTO';
+            headerStatus.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Listo para transmitir';
+
+            muteBtn.disabled = true;
+            muteBtn.className = 'py-3 px-3 bg-gray-800 text-gray-400 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-gray-700 transition cursor-not-allowed';
+            muteLabel.textContent = 'MUTE';
+
+            vuBar.style.width = '0%';
+            vuDb.textContent = '-∞ dB';
+            clipIndicator.className = 'py-3 px-2 rounded-xl bg-gray-950 border border-gray-800 text-center text-[10px] sm:text-xs font-mono font-bold tracking-wider text-gray-500 uppercase flex items-center justify-center truncate';
+            clipIndicator.textContent = 'NIVEL OK';
+            latencyBadge.textContent = '-- ms';
+        }
+
+        function toggleAudio() {
+            if (isStreaming) stopAudio();
+            else startAudio();
+        }
+
+        function startVUMeter() {
+            const bufferLength = analyserNode.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function update() {
+                if (!isStreaming) return;
+
+                // Si la ventana está minimizada o en segundo plano, no saturamos la GPU con animaciones innecesarias
+                if (!document.hidden) {
+                    analyserNode.getByteTimeDomainData(dataArray);
+
+                    let maxVal = 0;
+                    for (let i = 0; i < bufferLength; i++) {
+                        const v = Math.abs(dataArray[i] - 128);
+                        if (v > maxVal) maxVal = v;
+                    }
+
+                    const normalized = maxVal / 128;
+                    const percentage = Math.min(100, Math.max(0, normalized * 100 * 1.4));
+                    vuBar.style.width = percentage + '%';
+
+                    const db = normalized > 0 ? 20 * Math.log10(normalized) : -100;
+                    vuDb.textContent = db > -80 ? `${db.toFixed(1)} dB` : '-∞ dB';
+
+                    // Compuerta de ruido (Noise Gate)
+                    const gateThresh = parseInt(gateThreshold.value);
+                    if (gateThresh > 0 && gateGainNode && audioCtx && !isMuted) {
+                        if (db < -gateThresh) {
+                            gateGainNode.gain.setTargetAtTime(0.02, audioCtx.currentTime, 0.05);
+                        } else {
+                            gateGainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.02);
+                        }
+                    }
+
+                    // Detección de peak/saturación
+                    if (normalized >= 0.96) {
+                        clipIndicator.className = 'py-3 px-2 rounded-xl bg-red-950 border border-red-500 text-red-300 led-glow-red text-center text-[10px] sm:text-xs font-mono font-bold tracking-wider uppercase flex items-center justify-center truncate';
+                        clipIndicator.textContent = '¡PEAK / SATURADO!';
+                    } else {
+                        clipIndicator.className = 'py-3 px-2 rounded-xl bg-gray-950 border border-gray-800 text-center text-[10px] sm:text-xs font-mono font-bold tracking-wider text-gray-500 uppercase flex items-center justify-center truncate';
+                        clipIndicator.textContent = 'NIVEL OK';
+                    }
+                }
+
+                animationFrameId = requestAnimationFrame(update);
+            }
+
+            update();
+        }
+
+        function applyPreset(preset) {
+            const presets = {
+                'flat': [0, 0, 0, 0, 0, 0, 0],
+                'vocal': [-4, -2, 1, 3, 4, 2, 0],
+                'anti-feedback': [-3, 0, -1, 0, -4, -7, -9],
+                'warm': [3, 4, 2, 0, -1, -2, -4],
+                'radio': [-12, -8, 2, 5, 4, -6, -12]
+            };
+
+            const values = presets[preset] || presets['flat'];
+            values.forEach((val, idx) => {
+                const slider = document.getElementById(`eq-${idx}`);
+                const label = document.getElementById(`eq-val-${idx}`);
+                slider.value = val;
+                label.textContent = (val > 0 ? '+' : '') + val + 'dB';
+
+                if (eqNodes[idx] && audioCtx) {
+                    eqNodes[idx].gain.setTargetAtTime(val, audioCtx.currentTime, 0.015);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
