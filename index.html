@@ -1,4 +1,3 @@
-HTML
 <!DOCTYPE html>
 <html lang="es" class="dark h-full">
 <head>
@@ -216,11 +215,11 @@ HTML
     <!-- ========================================== -->
     <main class="max-w-4xl w-full mx-auto p-3 sm:p-5 flex-1 space-y-3.5 sm:space-y-4">
 
-        <!-- TIP DE BAJA LATENCIA & SEGUNDO PLANO -->
+        <!-- BARRA DE ESTADO DE CAPTURA BLUETOOTH -->
         <div class="bg-gray-900/60 border border-indigo-900/40 rounded-xl px-3 py-2 text-[11px] text-indigo-200/90 flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 truncate">
                 <i class="fa-brands fa-bluetooth-b text-cyan-400 text-sm shrink-0"></i>
-                <span class="truncate">Transmisión continua con auto-reconexión Bluetooth activa.</span>
+                <span id="active-mic-label" class="truncate">Selecciona tus audífonos Bluetooth y presiona Transmitir.</span>
             </div>
             <span id="latency-badge" class="font-mono text-[10px] bg-gray-950 px-2 py-0.5 rounded border border-gray-800 text-indigo-300 shrink-0">-- ms</span>
         </div>
@@ -244,7 +243,7 @@ HTML
                         <option value="">Detectando audífonos...</option>
                     </select>
 
-                    <!-- Selector de Salida (si el navegador lo admite) -->
+                    <!-- Selector de Salida Directa por Hardware -->
                     <div id="output-device-box" class="hidden pt-1 border-t border-gray-800/80">
                         <label class="block text-[11px] text-gray-400 mb-1 flex items-center gap-1">
                             <i class="fa-solid fa-volume-high text-cyan-400"></i> Salida al Parlante:
@@ -462,7 +461,7 @@ HTML
         </div>
 
         <p class="text-[10px] sm:text-[11px] text-gray-500 font-mono">
-            Mic-Link Pro &bull; Audio DSP Routing Engine &bull; Versión 1.0.2
+            Mic-Link Pro &bull; Audio DSP Routing Engine &bull; Versión 1.0.4
         </p>
     </footer>
 
@@ -477,11 +476,8 @@ HTML
         </button>
     </div>
 
-    <!-- Elementos de Audio:
-         1. mic-pump-audio: Mantiene vivo el stream Bluetooth en Chrome/Android (100% silenciado, cero eco)
-         2. audio-out-element: Salida alternativa solo si se selecciona dispositivo específico -->
-    <audio id="mic-pump-audio" muted playsinline class="hidden"></audio>
-    <audio id="audio-out-element" autoplay playsinline class="hidden"></audio>
+    <!-- Ancla de sesión multimedia inaudible (-100 dB) para evitar suspensión Bluetooth sin agregar latencia a tu voz -->
+    <audio id="keepalive-audio" autoplay playsinline class="hidden"></audio>
 
     <!-- ========================================== -->
     <!-- 5. MOTOR DE AUDIO DSP Y CONTROLADORES      -->
@@ -568,7 +564,7 @@ HTML
             advChevron.classList.toggle('rotate-180');
         });
 
-        // --- F. PIPELINE DSP DE AUDIO PROFESIONAL ---
+        // --- F. PIPELINE DSP DE AUDIO PROFESIONAL (ULTRA-BAJA LATENCIA) ---
         let audioCtx = null;
         let micStream = null;
         let micSourceNode = null;
@@ -581,15 +577,16 @@ HTML
         let convolverNode = null;
         let reverbWetGain = null;
         let reverbDryGain = null;
-        let streamDestNode = null;
         let keepAliveOsc = null;
         let keepAliveGain = null;
+        let keepAliveDest = null;
         let eqNodes = [];
         let isStreaming = false;
         let isMuted = false;
-        let isReconnectingMic = false;
+        let isRecovering = false;
+        let lastLiveSignalTime = 0;
         let animationFrameId = null;
-        let streamWatchdogInterval = null;
+        let watchdogInterval = null;
 
         const EQ_FREQUENCIES = [60, 150, 400, 1000, 2500, 6000, 12000];
 
@@ -621,7 +618,7 @@ HTML
             if (active) {
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: 'Mic-Link Pro (En Vivo)',
-                    artist: 'Transmisión Activa',
+                    artist: 'Transmisión Directa',
                     album: 'Puente Micrófono Bluetooth',
                     artwork: [
                         { src: 'icono.png', sizes: '512x512', type: 'image/png' }
@@ -641,23 +638,6 @@ HTML
             }
         }
 
-        // --- CONTROL AUTOMÁTICO DE VISIBILIDAD ---
-        document.addEventListener('visibilitychange', async () => {
-            if (isStreaming && audioCtx) {
-                if (audioCtx.state !== 'running') {
-                    try { await audioCtx.resume(); } catch (e) {}
-                }
-                if (micPumpAudio && micPumpAudio.paused && micStream) {
-                    try { await micPumpAudio.play(); } catch (e) {}
-                }
-                if (!document.hidden) {
-                    requestWakeLock();
-                    cancelAnimationFrame(animationFrameId);
-                    startVUMeter();
-                }
-            }
-        });
-
         // Referencias a elementos del DOM
         const micSelect = document.getElementById('mic-select');
         const outputSelect = document.getElementById('output-select');
@@ -675,6 +655,7 @@ HTML
         const statusDot = document.getElementById('status-dot');
         const headerStatus = document.getElementById('header-status');
         const consoleStatusText = document.getElementById('console-status-text');
+        const activeMicLabel = document.getElementById('active-mic-label');
         const clipIndicator = document.getElementById('clip-indicator');
         const latencyBadge = document.getElementById('latency-badge');
         const presetSelect = document.getElementById('preset-select');
@@ -682,14 +663,30 @@ HTML
         const gateVal = document.getElementById('gate-val');
         const reverbMix = document.getElementById('reverb-mix');
         const reverbVal = document.getElementById('reverb-val');
-        const micPumpAudio = document.getElementById('mic-pump-audio');
-        const audioElement = document.getElementById('audio-out-element');
+        const keepAliveAudio = document.getElementById('keepalive-audio');
 
         const bypassToggle = document.getElementById('bypass-toggle');
         const lowcutToggle = document.getElementById('lowcut-toggle');
         const notchToggle = document.getElementById('notch-toggle');
         const compToggle = document.getElementById('comp-toggle');
         const eqSection = document.getElementById('eq-section');
+
+        // --- CONTROL AUTOMÁTICO DE VISIBILIDAD ---
+        document.addEventListener('visibilitychange', async () => {
+            if (isStreaming && audioCtx) {
+                if (audioCtx.state !== 'running') {
+                    try { await audioCtx.resume(); } catch (e) {}
+                }
+                if (keepAliveAudio && keepAliveAudio.paused && keepAliveAudio.srcObject) {
+                    try { await keepAliveAudio.play(); } catch (e) {}
+                }
+                if (!document.hidden) {
+                    requestWakeLock();
+                    cancelAnimationFrame(animationFrameId);
+                    startVUMeter();
+                }
+            }
+        });
 
         window.addEventListener('DOMContentLoaded', () => {
             getAudioDevices();
@@ -756,11 +753,18 @@ HTML
 
             presetSelect.addEventListener('change', (e) => applyPreset(e.target.value));
 
-            outputSelect.addEventListener('change', async () => {
-                if (isStreaming) {
-                    await routeFinalOutput();
-                }
-            });
+            if ('setSinkId' in AudioContext.prototype) {
+                outputSelect.addEventListener('change', async () => {
+                    if (isStreaming && audioCtx) {
+                        const val = outputSelect.value;
+                        try {
+                            await audioCtx.setSinkId(!val || val === 'default' ? '' : val);
+                        } catch (e) {
+                            console.warn('Cambio de salida:', e);
+                        }
+                    }
+                });
+            }
         }
 
         async function getAudioDevices() {
@@ -790,7 +794,7 @@ HTML
                     });
                 }
 
-                if (audioOutputs.length > 0 && ('setSinkId' in AudioContext.prototype || 'setSinkId' in HTMLMediaElement.prototype)) {
+                if (audioOutputs.length > 0 && 'setSinkId' in AudioContext.prototype) {
                     outputDeviceBox.classList.remove('hidden');
                     outputSelect.innerHTML = '';
                     audioOutputs.forEach((device, index) => {
@@ -806,8 +810,7 @@ HTML
             }
         }
 
-        // --- CAPTURA Y BOMBA DE FLUJO CONTINUO PARA BLUETOOTH ---
-        async function acquireMicStream() {
+        async function openMicrophoneStream() {
             const deviceId = micSelect.value;
             const constraints = {
                 audio: {
@@ -824,27 +827,13 @@ HTML
             }
 
             micStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-            // Anclar stream a <audio muted> para evitar que Chrome suspenda el Bluetooth a los 10s
-            micPumpAudio.srcObject = micStream;
-            micPumpAudio.muted = true;
-            micPumpAudio.volume = 0;
-            try {
-                await micPumpAudio.play();
-            } catch (e) {
-                console.warn('Mic pump play:', e);
-            }
-
-            // Vigilar si la pista se corta o silencia por el sistema operativo
+            lastLiveSignalTime = performance.now();
             const track = micStream.getAudioTracks()[0];
+
             if (track) {
+                activeMicLabel.textContent = `Capturando: ${track.label || 'Micrófono activo'}`;
                 track.onended = () => {
-                    if (isStreaming) recoverMicStream();
-                };
-                track.onmute = () => {
-                    if (isStreaming && audioCtx && audioCtx.state !== 'running') {
-                        audioCtx.resume().catch(() => {});
-                    }
+                    if (isStreaming) recoverStream();
                 };
             }
 
@@ -854,61 +843,21 @@ HTML
             micSourceNode = audioCtx.createMediaStreamSource(micStream);
         }
 
-        async function recoverMicStream() {
-            if (!isStreaming || isReconnectingMic || !audioCtx) return;
-            isReconnectingMic = true;
+        async function recoverStream() {
+            if (!isStreaming || isRecovering || !audioCtx) return;
+            isRecovering = true;
             try {
                 consoleStatusText.textContent = 'RECONECTANDO...';
-                await acquireMicStream();
-                await reconnectAudioGraph();
-                consoleStatusText.textContent = 'EN VIVO';
-            } catch (err) {
-                console.warn('Error reconectando micrófono:', err);
-            } finally {
-                isReconnectingMic = false;
-            }
-        }
-
-        // --- ENRUTAMIENTO DE SALIDA ÚNICA (EVITA DOBLE AUDIO / ECO) ---
-        async function routeFinalOutput() {
-            if (!gainNode || !audioCtx) return;
-
-            try { gainNode.disconnect(audioCtx.destination); } catch (e) {}
-            if (streamDestNode) {
-                try { gainNode.disconnect(streamDestNode); } catch (e) {}
-                streamDestNode = null;
-            }
-            audioElement.pause();
-            audioElement.srcObject = null;
-
-            const selectedOut = outputSelect.value;
-            const isDefaultOut = !selectedOut || selectedOut === 'default';
-
-            if ('setSinkId' in AudioContext.prototype) {
-                try {
-                    await audioCtx.setSinkId(isDefaultOut ? '' : selectedOut);
-                } catch (e) {
-                    console.warn('AudioContext setSinkId:', e);
+                await openMicrophoneStream();
+                reconnectAudioGraph();
+                if (keepAliveAudio.paused) {
+                    await keepAliveAudio.play();
                 }
-                gainNode.connect(audioCtx.destination);
-                return;
-            }
-
-            if (isDefaultOut || !('setSinkId' in HTMLMediaElement.prototype)) {
-                gainNode.connect(audioCtx.destination);
-                return;
-            }
-
-            try {
-                streamDestNode = audioCtx.createMediaStreamDestination();
-                gainNode.connect(streamDestNode);
-                audioElement.srcObject = streamDestNode.stream;
-                await audioElement.setSinkId(selectedOut);
-                await audioElement.play();
+                consoleStatusText.textContent = 'EN VIVO';
             } catch (e) {
-                console.warn('Fallback a destino principal:', e);
-                audioElement.srcObject = null;
-                gainNode.connect(audioCtx.destination);
+                console.warn('Reintentando captura:', e);
+            } finally {
+                isRecovering = false;
             }
         }
 
@@ -918,9 +867,20 @@ HTML
                 audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
                 if (audioCtx.state !== 'running') await audioCtx.resume();
 
+                if ('setSinkId' in AudioContext.prototype && outputSelect.value && outputSelect.value !== 'default') {
+                    try { await audioCtx.setSinkId(outputSelect.value); } catch (e) {}
+                }
+
                 buildAudioNodes();
-                await acquireMicStream();
-                await reconnectAudioGraph();
+                await openMicrophoneStream();
+                reconnectAudioGraph();
+
+                // Ancla unmuted con señal inaudible (-100 dB) para que Android/Chrome mantenga
+                // vivo el Bluetooth sin hacer pasar tu voz por el búfer lento de <audio>
+                keepAliveAudio.srcObject = keepAliveDest.stream;
+                keepAliveAudio.muted = false;
+                keepAliveAudio.volume = 1.0;
+                try { await keepAliveAudio.play(); } catch (e) {}
 
                 updateMediaSession(true);
 
@@ -930,24 +890,25 @@ HTML
                     }
                 };
 
-                // Vigilante continuo cada 1.5s para evitar cortes de audio
-                if (streamWatchdogInterval) clearInterval(streamWatchdogInterval);
-                streamWatchdogInterval = setInterval(async () => {
+                // Vigilante continuo cada 1 segundo (detecta suspensión o corte silencioso de Bluetooth SCO)
+                if (watchdogInterval) clearInterval(watchdogInterval);
+                watchdogInterval = setInterval(async () => {
                     if (!isStreaming || !audioCtx) return;
 
                     if (audioCtx.state !== 'running') {
                         try { await audioCtx.resume(); } catch (e) {}
                     }
 
-                    if (micPumpAudio && micPumpAudio.paused && micStream) {
-                        try { await micPumpAudio.play(); } catch (e) {}
+                    if (keepAliveAudio && keepAliveAudio.paused && keepAliveAudio.srcObject) {
+                        try { await keepAliveAudio.play(); } catch (e) {}
                     }
 
                     const track = micStream ? micStream.getAudioTracks()[0] : null;
-                    if (!track || track.readyState === 'ended') {
-                        recoverMicStream();
+                    const silentTooLong = (performance.now() - lastLiveSignalTime) > 2500;
+                    if (!track || track.readyState === 'ended' || silentTooLong) {
+                        recoverStream();
                     }
-                }, 1500);
+                }, 1000);
 
                 isStreaming = true;
                 isMuted = false;
@@ -965,7 +926,7 @@ HTML
                 muteBtn.className = 'py-3 px-3 bg-amber-600/20 text-amber-300 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-amber-500/50 hover:bg-amber-600/30 transition cursor-pointer active:scale-95';
 
                 const baseLatency = ((audioCtx.baseLatency || 0) + (audioCtx.outputLatency || 0)) * 1000;
-                latencyBadge.textContent = baseLatency ? `${baseLatency.toFixed(0)} ms latencia` : '< 10 ms';
+                latencyBadge.textContent = baseLatency ? `${baseLatency.toFixed(0)} ms latencia` : '< 15 ms';
 
                 requestWakeLock();
                 startVUMeter();
@@ -995,7 +956,7 @@ HTML
 
             analyserNode = audioCtx.createAnalyser();
             analyserNode.fftSize = 256;
-            analyserNode.smoothingTimeConstant = 0.3;
+            analyserNode.smoothingTimeConstant = 0.25;
 
             lowCutNode = audioCtx.createBiquadFilter();
             lowCutNode.type = 'highpass';
@@ -1026,17 +987,18 @@ HTML
                 return filter;
             });
 
-            // Señal inaudible (-100dB) dentro del DSP para evitar suspensión por silencio
+            // Canal independiente inaudible (-100 dB) solo para mantener viva la sesión Bluetooth
+            keepAliveDest = audioCtx.createMediaStreamDestination();
             keepAliveOsc = audioCtx.createOscillator();
             keepAliveGain = audioCtx.createGain();
-            keepAliveOsc.frequency.value = 1;
+            keepAliveOsc.frequency.value = 20;
             keepAliveGain.gain.value = 0.00001;
             keepAliveOsc.connect(keepAliveGain);
-            keepAliveGain.connect(audioCtx.destination);
+            keepAliveGain.connect(keepAliveDest);
             keepAliveOsc.start();
         }
 
-        async function reconnectAudioGraph() {
+        function reconnectAudioGraph() {
             if (!micSourceNode || !audioCtx) return;
 
             micSourceNode.disconnect();
@@ -1053,12 +1015,15 @@ HTML
             const reverbAmount = parseFloat(reverbMix.value);
 
             if (bypassToggle.checked) {
+                micSourceNode.connect(analyserNode);
                 micSourceNode.connect(gateGainNode);
                 gateGainNode.connect(gainNode);
-                gainNode.connect(analyserNode);
-                await routeFinalOutput();
+                gainNode.connect(audioCtx.destination);
                 return;
             }
+
+            // Medidor de señal cruda del micrófono (detecta cortes de Bluetooth incluso en Mute)
+            micSourceNode.connect(analyserNode);
 
             let current = micSourceNode;
 
@@ -1092,8 +1057,9 @@ HTML
             }
 
             gateGainNode.connect(gainNode);
-            gainNode.connect(analyserNode);
-            await routeFinalOutput();
+
+            // Salida directa al hardware de sonido (ultra-baja latencia, sin eco)
+            gainNode.connect(audioCtx.destination);
         }
 
         function toggleMute() {
@@ -1115,30 +1081,25 @@ HTML
             isStreaming = false;
             isMuted = false;
 
-            if (streamWatchdogInterval) {
-                clearInterval(streamWatchdogInterval);
-                streamWatchdogInterval = null;
+            if (watchdogInterval) {
+                clearInterval(watchdogInterval);
+                watchdogInterval = null;
             }
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
 
-            if (micPumpAudio) {
-                micPumpAudio.pause();
-                micPumpAudio.srcObject = null;
+            if (keepAliveAudio) {
+                keepAliveAudio.pause();
+                keepAliveAudio.srcObject = null;
+            }
+            if (keepAliveOsc) {
+                try { keepAliveOsc.stop(); } catch (e) {}
+                keepAliveOsc = null;
             }
             if (micStream) {
                 micStream.getTracks().forEach(t => t.stop());
                 micStream = null;
             }
-            if (audioElement) {
-                audioElement.pause();
-                audioElement.srcObject = null;
-            }
-            streamDestNode = null;
-
-            if (keepAliveOsc) {
-                try { keepAliveOsc.stop(); } catch (e) {}
-                keepAliveOsc = null;
-            }
+            keepAliveDest = null;
 
             if (audioCtx) {
                 audioCtx.close();
@@ -1157,6 +1118,7 @@ HTML
             statusDot.className = 'w-2 h-2 rounded-full bg-gray-600';
             consoleStatusText.textContent = 'LISTO';
             headerStatus.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Listo para transmitir';
+            activeMicLabel.textContent = 'Selecciona tus audífonos Bluetooth y presiona Transmitir.';
 
             muteBtn.disabled = true;
             muteBtn.className = 'py-3 px-3 bg-gray-800 text-gray-400 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-gray-700 transition cursor-not-allowed';
@@ -1175,38 +1137,43 @@ HTML
         }
 
         function startVUMeter() {
-            const bufferLength = analyserNode.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
+            const bufferLength = analyserNode.fftSize;
+            const floatArray = new Float32Array(bufferLength);
 
             function update() {
                 if (!isStreaming) return;
 
-                if (!document.hidden) {
-                    analyserNode.getByteTimeDomainData(dataArray);
+                analyserNode.getFloatTimeDomainData(floatArray);
 
-                    let maxVal = 0;
-                    for (let i = 0; i < bufferLength; i++) {
-                        const v = Math.abs(dataArray[i] - 128);
-                        if (v > maxVal) maxVal = v;
+                let maxVal = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = Math.abs(floatArray[i]);
+                    if (v > maxVal) maxVal = v;
+                }
+
+                // Si entran muestras reales (ruido térmico del micrófono > 0), actualizamos marca de vida
+                if (maxVal > 0.00001) {
+                    lastLiveSignalTime = performance.now();
+                }
+
+                const db = maxVal > 0 ? 20 * Math.log10(maxVal) : -100;
+
+                // Compuerta de ruido (Noise Gate)
+                const gateThresh = parseInt(gateThreshold.value);
+                if (gateThresh > 0 && gateGainNode && audioCtx && !isMuted) {
+                    if (db < -gateThresh) {
+                        gateGainNode.gain.setTargetAtTime(0.02, audioCtx.currentTime, 0.05);
+                    } else {
+                        gateGainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.02);
                     }
+                }
 
-                    const normalized = maxVal / 128;
-                    const percentage = Math.min(100, Math.max(0, normalized * 100 * 1.4));
+                if (!document.hidden) {
+                    const percentage = Math.min(100, Math.max(0, maxVal * 100 * 1.4));
                     vuBar.style.width = percentage + '%';
-
-                    const db = normalized > 0 ? 20 * Math.log10(normalized) : -100;
                     vuDb.textContent = db > -80 ? `${db.toFixed(1)} dB` : '-∞ dB';
 
-                    const gateThresh = parseInt(gateThreshold.value);
-                    if (gateThresh > 0 && gateGainNode && audioCtx && !isMuted) {
-                        if (db < -gateThresh) {
-                            gateGainNode.gain.setTargetAtTime(0.02, audioCtx.currentTime, 0.05);
-                        } else {
-                            gateGainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.02);
-                        }
-                    }
-
-                    if (normalized >= 0.96) {
+                    if (maxVal >= 0.96) {
                         clipIndicator.className = 'py-3 px-2 rounded-xl bg-red-950 border border-red-500 text-red-300 led-glow-red text-center text-[10px] sm:text-xs font-mono font-bold tracking-wider uppercase flex items-center justify-center truncate';
                         clipIndicator.textContent = '¡PEAK / SATURADO!';
                     } else {
